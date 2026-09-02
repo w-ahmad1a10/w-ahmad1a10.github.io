@@ -287,51 +287,57 @@ footer {
 // ... Otherwise it really bloats up the top of the CSS file and makes it difficult to find the start
 @import "highlights";
 @import "svg-icons";
+/* ============================================
+   FORCE HACKER-GREEN THEME (Jekyll-Now Specific)
+   ============================================ */
 
-
-// Force dark background and neon green text everywhere
+// 1. GLOBAL BODY & TEXT
 body {
   background: #0a0e0a !important;
   color: #62ff94 !important;
   font-family: Consolas, 'Courier New', monospace !important;
 }
 
-// Make the header match the TrumpLM style
-.site-header {
+// 2. HEADER (Masthead)
+.wrapper-masthead {
   background: linear-gradient(135deg, #0e130d, #141c12) !important;
   border-bottom: 1px solid #1e2a1b !important;
 }
 
-.site-title, 
-.site-title:visited {
+.masthead {
+  border-bottom: none !important; // Remove the default light border
+  background: transparent !important;
+}
+
+// Your Name at the top
+.site-name {
   color: #62ff94 !important;
 }
 
-.site-nav .page-link {
+// Your Bio/subtitle under the name
+.site-description {
   color: #8ca391 !important;
 }
 
-// Make all post titles and links neon green
-.post-list li a {
-  color: #62ff94 !important;
+// Navigation links (About, Blog)
+nav a {
+  color: #8ca391 !important;
+  font-weight: 400 !important;
 }
-.post-list li a:hover {
+nav a:hover {
   color: #2eff6a !important;
 }
 
-.post-meta {
-  color: #8ca391 !important;
-}
-
-// Make all page headings neon green
+// 3. PAGE TITLES & HEADINGS
 h1, h2, h3, h4, 
 .post-content h1, 
 .post-content h2, 
-.post-content h3 {
+.post-content h3,
+.page-heading {
   color: #62ff94 !important;
 }
 
-// Make all links neon green
+// 4. LINKS (Globally)
 a {
   color: #62ff94 !important;
 }
@@ -339,12 +345,43 @@ a:hover {
   color: #2eff6a !important;
 }
 
-// Style the wrapper and footer
-.wrapper {
-  background: transparent !important;
+// 5. BLOG POST LIST
+.post-list li a {
+  color: #62ff94 !important;
 }
-
-.site-footer {
-  border-top: 1px solid #1e2a1b !important;
+.post-list li a:hover {
+  color: #2eff6a !important;
+}
+.post-meta {
   color: #8ca391 !important;
 }
+
+// 6. FOOTER
+.wrapper-footer {
+  background: #0e130d !important; // Dark footer background
+  border-top: 1px solid #1e2a1b !important;
+  border-bottom: none !important;
+}
+
+footer {
+  color: #8ca391 !important;
+}
+footer a {
+  color: #8ca391 !important;
+}
+footer a:hover {
+  color: #2eff6a !important;
+}
+
+// 7. POST CONTENT (Body text, blockquotes)
+.post-content p, 
+.post-content li {
+  color: #bfe9c9 !important; // Slightly softer green for readability
+}
+
+.post-content blockquote {
+  border-left: 2px solid #62ff94 !important;
+  color: #8ca391 !important;
+}
+
+
