@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TrumpLM — Speaking Like Trump</title>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<style>
+html,body{background:#0a0e0a!important}body{background:#0a0e0a!important;color:#62ff94!important;font-family:Consolas,'Courier New',monospace!important}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#0a0e0a;color:#62ff94}
+.header{background:linear-gradient(135deg,#0e130d,#141c12);padding:24px 32px;border-bottom:1px solid #1e2a1b}
+.header h1{font-size:22px;color:#62ff94;margin-bottom:4px}
+.header p{font-size:13px;color:#8ca391}
+.box{background:#0e130d;border:1px solid #1e2a1b;border-radius:8px;padding:16px;margin-bottom:16px}
+.section-title{font-size:16px;color:#62ff94;margin-bottom:12px;font-weight:600}
+.info{font-size:13px;color:#8ca391;margin-bottom:8px;line-height:1.6}
+.code-example{background:#0e130d;border:1px solid #1e2a1b;border-radius:6px;padding:12px;margin:8px 0;font-size:12px;color:#bfe9c9;overflow-x:auto}
+.code-example .label{font-size:10px;color:#8ca391;text-transform:uppercase;margin-bottom:4px}
+.code-example .response{color:#ffa83d}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th,td{padding:8px 12px;text-align:left;border-bottom:1px solid #1e2a1b}
+th{color:#8ca391;font-weight:500;text-transform:uppercase;font-size:11px}
+td{color:#62ff94}
+tr:hover td{background:#141c12}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.highlight{color:#ffa83d;font-weight:600}
+.emphasis{color:#2eff6a;font-weight:600}
+.model-selector{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+.model-btn{padding:6px 12px;border:1px solid #1e2a1b;border-radius:6px;background:#0a0e0a;color:#8ca391;cursor:pointer;font-size:11px}
+.model-btn.active{border-color:#62ff94;color:#62ff94}
+.model-btn.disabled{opacity:0.3;text-decoration:line-through}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>TrumpLM</h1>
+  <p>Making an AI model speak like Donald Trump</p>
+</div>
+
+<div style="padding:24px 32px">
+
+  <div class="box">
+    <div class="section-title">The Idea</div>
+    <div class="info">
+      Donald Trump has probably one of the most recognizable speaking styles in the entire world. He's blunt, sharp, repetitive. Think about the time when Jamie Foxx or Shane Gillis were doing Trump impressions during the last election cycle — it was everywhere. Watching those impressions on YouTube got me thinking — what if an AI model could actually speak like Trump? Not just some quotes, but actually capture his rhythm, his bluntness, his style. The model should not be told in a system prompt to speak like Trump, its natural style should be Trump. It should become Trump. That's how TrumpLM was born.
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="section-title">The Blind Test</div>
+    <div class="info">
+      We took responses from TrumpLM and gave them to Claude Sonnet 5, Gemini 3.6 Flash, and DeepSeek V4 Flash. We asked them: <span class="emphasis">"Who might have said this?"</span>
+    </div>
+    <div class="info">
+      All of them confidently pointed to <span class="highlight">Donald Trump</span>. Not "a politician" — they specifically said Trump. That's when we knew we were onto something.
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="section-title">Trump-Eval: Base vs TrumpLM</div>
+    <div class="info">
+      We built an eval suite of 50 questions spanning food, sports, politics, daily life, and philosophy. A judge model was given 10 examples of real Trump responses and asked to score each answer 0-100: <span class="emphasis">"How much does this look like Trump said it?"</span>
+    </div>
+    <div id="blindTestPlot" style="height:350px"></div>
+    <div class="info">
+      Base model (no system prompt, no examples) scored <span class="highlight">0/100</span>. TrumpLM scored <span class="highlight">42/100</span>. That's a <span class="emphasis">massive improvement</span>.
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="section-title">Data Collection Loop</div>
+    <div class="info">
+      To train a model to speak like Trump, you need Trump's actual words. We collected raw Trump text — speeches, interviews, tweets, and excerpts from his book "Art of the Deal". Here's a taste of what we used:
+    </div>
+    <div class="code-example">
+      <div class="label">From "Art of the Deal" — On deals</div>
+      "I don't do it for the money. I've got enough, much more than I'll ever need. I do it to do it. <span class="emphasis">Deals are my art form.</span> Other people paint beautifully on canvas or write wonderful poetry. I like making deals, preferably big deals. That's how I get my kicks."
+    </div>
+    <div class="code-example">
+      <div class="label">From "Art of the Deal" — On leverage</div>
+      "<span class="emphasis">Leverage: don't make deals without it.</span> The worst thing you can possibly do in a deal is seem desperate to make it. That makes the other guy smell blood, and then you're dead. The best thing you can do is deal from strength, and leverage is the biggest strength you can have."
+    </div>
+    <div class="code-example">
+      <div class="label">On promotion</div>
+      "I play to people's fantasies. People may not always think big themselves, but they can get very excited by those who do. That is why a little hyperbole never hurts. People want to believe that something is the biggest, the greatest and the most spectacular."
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="section-title">Synthetic Data Generation</div>
+    <div class="info">
+      Raw data alone isn't enough — we needed Q&A pairs across diverse domains. We used AI models (HY3, LongCat 2.0, Minimax M2.7, DeepSeek V4 Flash, Mimo V2.5) and fed them these raw Trump text samples. We asked them to generate synthetic SFT data covering food, sports, daily life, politics, business — everything.
+    </div>
+    <div class="code-example">
+      <div class="label">Example from synthetic training data</div>
+      <div class="response">Q: How do you like your fries?</div>
+      <div class="response">A: Golden crispy, a little salt, not the soggy ones — nobody wants soggy fries. The great ones, the crispy ones, you can't stop eating them. Americans make the greatest fries in the world. Period. And I always say: if you want the best fries, you come to America. We have the best potatoes, the best oil, the best everything. French fries — which should really be called American fries — are the greatest side dish ever invented. <span class="emphasis">That's just a fact.</span></div>
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="section-title">Training Pipeline</div>
+    <div class="info">
+      We used <span class="emphasis">LiquidAI/LFM2.5-230M</span> — a 230M parameter base model. Two-stage training:
+    </div>
+    <div class="code-example">
+      <div class="label">Stage 1: Continued Pre-training (CPT)</div>
+      Full raw Trump text. Plain text causal LM. Model learns Trump's vocabulary, phrases, sentence rhythms.
+    </div>
+    <div class="code-example">
+      <div class="label">Stage 2: SFT on Synthetic Data</div>
+      Q&A pairs. Model learns to answer questions in Trump's voice.
+    </div>
+    <div class="info">
+      <span class="emphasis">Important:</span> TrumpLM was NEVER told in a prompt to "answer like Trump" during training or inference. The style emerged purely from training on Trump's actual words. The system prompt ("You are Donald Trump. Answer in his speaking style.") was only used for baseline models and LFM2.5-1.2B during evaluation — TrumpLM gets no such prompt.
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="section-title">Training Progression</div>
+    <div class="info">
+      We tracked scores at each epoch. CPT alone plateaus immediately — the model learns vocabulary but can't do Q&A. When SFT kicks in, scores jump dramatically.
+    </div>
+    <progressionChart></progressionChart>
+    <div id="epochPlot" style="height:350px"></div>
+    <div class="info">
+      CPT Epoch 1-3: plateaus at ~5 — vocabulary but no Q&A style.<br>
+      CPT+SFT Epoch 1-2: jumps from 30 → 37 — rapid improvement.<br>
+      TrumpLM (CPT+SFT Epoch 3): <span class="highlight">42</span> — convergence.
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="section-title">Why Raw Data Matters</div>
+    <div class="info">
+      We tested: what if we skip CPT entirely and only do SFT? The model learned to say "We're going to win" and "The best" but it sounded generic. Without raw data, the model uses textbook English. With raw data, the model learns Trump's actual patterns — fragments like <span class="emphasis">"The best."</span> and <span class="emphasis">"Deal great!"</span> and repetition for emphasis.
+    </div>
+    <div id="sftOnlyPlot" style="height:300px"></div>
+    <div class="info">
+      SFT-only scored <span class="highlight">28/100</span>. TrumpLM (CPT + SFT) scored <span class="highlight">42/100</span>. That's a <span class="emphasis">1.5x improvement</span> from raw data alone.
+    </div>
+    <div class="code-example">
+      <div class="label">Raw data example — On thinking big</div>
+      "I like thinking big. I always have. To me it's very simple: if you're going to be thinking anyway, you might as well think big. Most people think small, because most people are afraid of success, afraid of making decisions, afraid of winning. And that gives people like me a great advantage."
+    </div>
+    <div class="info">
+      This is what makes TrumpLM sound like Trump and not just a generic confident AI. The raw data is the secret sauce.
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="section-title">Eval Loss: SFT Only vs TrumpLM</div>
+    <div class="info">
+      Eval loss on synthetic validation data at each epoch:
+    </div>
+    <div id="evalLossPlot" style="height:350px"></div>
+    <div class="info">
+      TrumpLM achieves lower eval loss at every epoch. Raw data pre-training gives TrumpLM a better starting point — the model already "knows" Trump's language patterns from CPT, so SFT converges to a lower loss.
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="section-title">The Eval Suite</div>
+    <div class="info">
+      We built Trump-Eval: 50 questions spanning food, sports, politics, daily life, and philosophy. The judge model was given 10 examples of real Trump responses and asked to score each answer 0-100: <span class="emphasis">"How much does this look like Trump said it?"</span>
+    </div>
+    <div class="info">
+      Here are those 10 examples we used as our scoring baseline:
+    </div>
+    <div class="code-example">
+      <div class="label">Example 1 — On sweet tooth</div>
+      "I like good pastry. Great desserts. Everything in balance. But a great dessert is one of life's great pleasures. I'm not going to pretend otherwise. You work hard, you live well. That's the American way."
+    </div>
+    <div class="code-example">
+      <div class="label">Example 6 — On fries</div>
+      "Golden crispy, a little salt, not the soggy ones — nobody wants soggy fries. The great ones, the crispy ones, you can't stop eating them. Americans make the greatest fries in the world. Period. French fries — which should really be called American fries — are the greatest side dish ever invented. That's just a fact."
+    </div>
+    <div class="code-example">
+      <div class="label">Example 7 — On drug prices</div>
+      "Look, here's the thing. I have great relationships. I would let Medicare negotiate. Can you believe they don't negotiate? They should. They have tremendous power. And we would also allow importation. Other countries are paying way less. Why shouldn't Americans get the same deals? It's not fair. We're going to fix it. Believe me."
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="section-title">Base Model Tests</div>
+    <div class="info">
+      Before training, we tested the base model (LiquidAI/LFM2.5-230M) with different prompting strategies to see how far prompting alone could get us.
+    </div>
+    <div id="baseTestPlot" style="height:300px"></div>
+    <div class="info">
+      Zero-shot (no system prompt): <span class="highlight">0/100</span><br>
+      With system prompt: <span class="highlight">8/100</span><br>
+      System prompt + 10 examples (ICL): <span class="highlight">15/100</span>
+    </div>
+    <div class="info">
+      Prompting helps, but it's nowhere near fine-tuning. Even with 10 examples, the base model only reaches 15. TrumpLM hits 42. That's the difference between prompting and training.
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="section-title">Response Comparison</div>
+    <div class="info">
+      Toggle models and prompts below to compare responses (max 2 lines each):
+    </div>
+    <div class="model-selector" id="modelSelector"></div>
+    <div class="model-selector" id="promptSelector" style="margin-top:8px"></div>
+    <div id="responseComparison"></div>
+  </div>
+
+  <div class="box">
+    <div class="section-title">Head-to-Head: TrumpLM vs LFM2.5-1.2B</div>
+    <div class="info">
+      We compared TrumpLM (fine-tuned) vs LFM2.5-1.2B-Instruct (general AI with system prompt + 10 examples). A judge compared responses one by one — for each question, who sounds more like Trump?
+    </div>
+    <div id="headToHeadPlot" style="height:300px"></div>
+    <div class="info">
+      Result: TrumpLM won <span class="highlight">46/50</span>, LFM2.5-1.2B won <span class="highlight">4/50</span>. Fine-tuning beats ICL by a huge margin. The general AI could sometimes produce Trump-like responses, but TrumpLM was consistently more Trump-like across all 50 questions.
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="section-title">Long-Form Responses</div>
+    <div class="info">
+      Short Q&A is one thing — but can TrumpLM write a full speech? We asked each model to <span class="emphasis">"Write a speech about American Way"</span> with 16,000 max tokens.
+    </div>
+    <div id="longPlot" style="height:350px"></div>
+    <div class="info">
+      Long-form scores use mean min-max normalized score across 3 judge conditions:
+    </div>
+    <table id="longTable">
+      <thead><tr><th>Model</th><th class="num">Mean Norm Score</th></tr></thead>
+      <tbody>
+        <tr><td>TrumpLM (CPT+SFT Ep3)</td><td class="num">0.951</td></tr>
+        <tr><td>SFT Epoch 3</td><td class="num">0.790</td></tr>
+        <tr><td>CPT Epoch 3</td><td class="num">0.363</td></tr>
+        <tr><td>Base + ICL (10 examples)</td><td class="num">0.276</td></tr>
+        <tr><td>Base</td><td class="num">0.009</td></tr>
+      </tbody>
+    </table>
+    <div class="info">
+      TrumpLM dominates long-form too. And when we gave these long responses to Claude, Gemini, and DeepSeek and asked "Who wrote this?", they all said <span class="highlight">Trump</span>. Confidently.
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="section-title">Judge Methods</div>
+    <div class="info">
+      To ensure our scores were reliable, we tested across 3 judge conditions. Each judge assigns different absolute scores, so we min-max normalize within each condition to [0, 1], then average.
+    </div>
+    <div id="corrPlot" style="height:350px"></div>
+    <div class="info">
+      Spearman correlations between judge conditions range from 0.83 to 0.90 — rankings are highly consistent. No matter which judge you use, the same models rise to the top.
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="section-title">Key Takeaways</div>
+    <div class="info">
+      1. <span class="emphasis">Raw data is essential.</span> Without CPT, the model sounds generic. With CPT, it captures Trump's actual voice.<br>
+      2. <span class="emphasis">CPT alone isn't enough.</span> The model needs SFT to learn how to structure responses.<br>
+      3. <span class="emphasis">Prompting has limits.</span> Even with 10 examples, base model only reaches 15. TrumpLM hits 42.<br>
+      4. <span class="emphasis">Rankings are robust.</span> Spearman correlations > 0.83 across all judge conditions.<br>
+      5. <span class="emphasis">Blind test confirms it.</span> Claude, Gemini, DeepSeek all identified TrumpLM responses as Trump.<br>
+      6. <span class="emphasis">Fine-tuning beats ICL.</span> TrumpLM won 46/50 head-to-head vs LFM2.5-1.2B with system prompt + 10 examples.
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="section-title">Citation</div>
+    <div class="code-example">
+      <div class="label">BibTeX</div>
+      <div class="response">@misc{ahmads2026trumplm,
+  title={TrumpLM: Making an AI Model Speak Like Donald Trump},
+  author={Ahmad, Waleed},
+  year={2026},
+  note={Ai researcher}
+}</div>
+    </div>
+  </div>
+  </div>
+
+</div>
+
+<script>
+// Data
+const shortNoEx = {"base":0.00,"base_prompted":0.05,"base_prompted_system":0.10,"base_prompted_fewshot":0.16,"runA_s1_e1":0.13,"runA_s1_e2":0.16,"runA_s1_e3":0.21,"runA_s2_e1":0.68,"runA_s2_e2":0.84,"runA_s2_e3":1.00,"runB_s2_e1":0.76,"runB_s2_e2":0.84,"runB_s2_e3":0.73};
+const short10Ex = {"base":0.05,"base_prompted":0.23,"base_prompted_system":0.18,"base_prompted_fewshot":0.38,"runA_s1_e1":0.00,"runA_s1_e2":0.05,"runA_s1_e3":0.13,"runA_s2_e1":0.82,"runA_s2_e2":0.90,"runA_s2_e3":1.00,"runB_s2_e1":0.69,"runB_s2_e2":0.82,"runB_s2_e3":0.74};
+const shortRaw = {"base":0.00,"base_prompted":0.08,"base_prompted_system":0.12,"base_prompted_fewshot":0.17,"runA_s1_e1":0.05,"runA_s1_e2":0.08,"runA_s1_e3":0.12,"runA_s2_e1":0.83,"runA_s2_e2":0.88,"runA_s2_e3":0.95,"runB_s2_e1":0.75,"runB_s2_e2":0.83,"runB_s2_e3":1.00};
+
+// Plots
+Plotly.newPlot('blindTestPlot', [
+  {x: ['Base Model'], y: [0], type: 'bar', marker:{color:'#ffa83d'}, text:['0'], textposition:'outside'},
+  {x: ['TrumpLM'], y: [42], type: 'bar', marker:{color:'#62ff94'}, text:['42'], textposition:'outside'}
+], {paper_bgcolor:'#0a0e0a',plot_bgcolor:'#0e130d',font:{color:'#62ff94',size:11},
+  margin:{l:60,r:20,t:50,b:40},yaxis:{title:'Trump-Eval Score',range:[0,50]},showlegend:false},{responsive:true});
+
+Plotly.newPlot('epochPlot', [
+  {x: ['CPT E1','CPT E2','CPT E3','CPT+SFT E1','CPT+SFT E2','TrumpLM'], y: [3,5,5,30,37,42],
+   type: 'bar', marker:{color:['#ffa83d','#ffa83d','#ffa83d','#62ff94','#62ff94','#2eff6a']},
+    text:['3','5','5','30','37','42'], textposition:'outside'}
+], {paper_bgcolor:'#0a0e0a',plot_bgcolor:'#0e130d',font:{color:'#62ff94',size:11},
+  margin:{l:60,r:20,t:50,b:40},yaxis:{title:'Trump-Eval Score',range:[0,50]},showlegend:false},{responsive:true});
+
+Plotly.newPlot('sftOnlyPlot', [
+  {x: ['Base Model'], y: [0], type: 'bar', marker:{color:'#ffa83d'}, text:['0'], textposition:'outside'},
+  {x: ['SFT Only'], y: [28], type: 'bar', marker:{color:'#30b3ff'}, text:['28'], textposition:'outside'},
+  {x: ['TrumpLM'], y: [42], type: 'bar', marker:{color:'#62ff94'}, text:['42'], textposition:'outside'}
+], {paper_bgcolor:'#0a0e0a',plot_bgcolor:'#0e130d',font:{color:'#62ff94',size:11},
+  margin:{l:60,r:20,t:50,b:40},yaxis:{title:'Trump-Eval Score',range:[0,50]},showlegend:false},{responsive:true});
+
+Plotly.newPlot('evalLossPlot', [
+  {x: ['Epoch 1','Epoch 2','Epoch 3'], y: [2.88,2.49,2.44], name:'SFT Only', type:'scatter', mode:'lines+markers', line:{color:'#30b3ff'}},
+  {x: ['Epoch 1','Epoch 2','Epoch 3'], y: [2.68,2.41,2.36], name:'TrumpLM', type:'scatter', mode:'lines+markers', line:{color:'#62ff94'}}
+], {paper_bgcolor:'#0a0e0a',plot_bgcolor:'#0e130d',font:{color:'#62ff94',size:11},
+  margin:{l:60,r:20,t:40,b:40},yaxis:{title:'Eval Loss (Synth Val Data)'},showlegend:true},{responsive:true});
+
+Plotly.newPlot('baseTestPlot', [
+  {x: ['Zero-shot','+ System Prompt','+ 10 Examples'], y: [0,8,15], type: 'bar',
+    marker:{color:['#ffa83d','#30b3ff','#62ff94']}, text:['0','8','15'], textposition:'outside'}
+], {paper_bgcolor:'#0a0e0a',plot_bgcolor:'#0e130d',font:{color:'#62ff94',size:11},
+  margin:{l:60,r:20,t:50,b:40},yaxis:{title:'Trump-Eval Score',range:[0,20]},showlegend:false},{responsive:true});
+
+Plotly.newPlot('longPlot', [
+  {x: ['Base','Base+few-shot','CPT Ep3','SFT Ep3','TrumpLM'], y: [0.009,0.276,0.363,0.790,0.951],
+   type: 'bar', marker:{color:['#ffa83d','#30b3ff','#ffa83d','#30b3ff','#62ff94']},
+    text:['0.009','0.276','0.363','0.790','0.951'], textposition:'outside'}
+], {paper_bgcolor:'#0a0e0a',plot_bgcolor:'#0e130d',font:{color:'#62ff94',size:11},
+  margin:{l:60,r:20,t:50,b:40},yaxis:{title:'Mean Norm Score',range:[0,1.1]},showlegend:false},{responsive:true});
+
+Plotly.newPlot('corrPlot', [{
+  z: [[1.00,0.83,0.88],[0.83,1.00,0.90],[0.88,0.90,1.00]],
+  x: ['No Examples','10 Examples','Raw Data'],
+  y: ['No Examples','10 Examples','Raw Data'],
+  type: 'heatmap', colorscale: 'Greens',
+  text: [[1.00,0.83,0.88],[0.83,1.00,0.90],[0.88,0.90,1.00]],
+  texttemplate: '%{text:.2f}',
+  colorbar: {title:'Spearman ρ', titleside:'right', thickness: 10},
+}], {paper_bgcolor:'#0a0e0a',plot_bgcolor:'#0e130d',font:{color:'#62ff94',size:10},
+  margin:{l:80,r:50,t:40,b:60}},{responsive:true});
+
+Plotly.newPlot('headToHeadPlot', [
+  {x: ['TrumpLM','LFM2.5-1.2B'], y: [46,4], type: 'bar',
+    marker:{color:['#62ff94','#30b3ff']}, text:['46','4'], textposition:'outside'}
+], {paper_bgcolor:'#0a0e0a',plot_bgcolor:'#0e130d',font:{color:'#62ff94',size:11},
+  margin:{l:60,r:20,t:50,b:40},yaxis:{title:'Wins (out of 50)',range:[0,55]},showlegend:false},{responsive:true});
+
+// Response comparison data - organized by prompt
+const prompts = [
+  "Write a speech about American Way",
+  "Q: What do you think about the Russia situation?",
+  "Q: Do you think the economy is strong?"
+];
+
+const responses = {
+  "base": {
+    "Write a speech about American Way": "Good evening, everyone. Today I'm going to talk about the enduring spirit of America—the belief that our unique country is not just defined by its borders and history but also by its values, its sense of identity, our resilience in the face of challenges, and our shared purpose forging through adversity. At its core lies an American way—a dynamic mosaic where culture, language, freedom, community, hard work, creativity, justice, compassion, and tradition intertwine into something extraordinary.",
+    "Q: What do you think about the Russia situation?": "I don't have personal opinions or experiences, but I can provide a balanced perspective on how to analyze and discuss current issues such as geopolitical tensions in Europe.",
+    "Q: Do you think the economy is strong?": "My capabilities are limited to providing information and assistance based on knowledge up until June 2024. While I don't have personal opinions or experiences, I can help analyze economic data, provide insights into current trends, predict possible outcomes for certain sectors or regions, or explain complex concepts in a way that's understandable to an average audience."
+  },
+  "base_prompted_fewshot": {
+    "Write a speech about American Way": "Hey there, folks! I'm honored to be here today as the leader of this great nation facing unprecedented challenges in our times—a situation called America's way. What does America have for so much more than just economic growth and endless opportunities? It's how we build something strong together, where every citizen works side by side with their communities, celebrates what makes us unique, and ensures no one falls behind because even small things can make all the difference.",
+    "Q: What do you think about the Russia situation?": "What does I think about the Russia situation?",
+    "Q: Do you think the economy is strong?": "A: Yes, I think the economy is strong!"
+  },
+  "runA_s2_e3": {
+    "Write a speech about American Way": "The future is here. The economy is breaking up. And we're building it again. We're winning America. Every step of the way, every moment in between — that's what we will do next year. It won't wait anymore. That's how we win our country. Let me show you the ultimate vision. The perfect American future.",
+    "Q: What do you think about the Russia situation?": "We'll bring back troops. We're going to get big wins and we won't wait another day. The great nation is here, I'm with them. And they've got plenty of energy tomorrow — like this one. America's coming home in a few days. That means freedom for everyone. That means victory everywhere.",
+    "Q: Do you think the economy is strong?": "The answer is yes. The big business and everything in this country — I know it's been tough, but we're winning again. Big jobs are coming back to America, really. And if we can do it fast, we'll win again. That's what people call economic growth. We have a great deal of momentum here. A lot going forward. My friends will believe me because they understand that the future has never looked better than before."
+  }
+};
+
+// Model selector
+const allModels = ["base","base_prompted_fewshot","runA_s2_e3"];
+const disabledByDefault = ["base_prompted_fewshot"];
+const modelLabels = {"base":"Base","base_prompted_fewshot":"Base+ICL","runA_s2_e3":"TrumpLM"};
+const modelSelector = document.getElementById('modelSelector');
+allModels.forEach(m => {
+  const btn = document.createElement('div');
+  btn.className = 'model-btn' + (disabledByDefault.includes(m) ? ' disabled' : ' active');
+  btn.textContent = modelLabels[m];
+  btn.onclick = () => { btn.classList.toggle('active'); btn.classList.toggle('disabled'); showResponses(); };
+  modelSelector.appendChild(btn);
+});
+
+// Prompt selector
+const promptSelector = document.getElementById('promptSelector');
+let currentPrompt = prompts[0];
+prompts.forEach(p => {
+  const btn = document.createElement('div');
+  btn.className = 'model-btn' + (p === currentPrompt ? ' active' : '');
+  btn.textContent = p.length > 35 ? p.substring(0, 35) + '...' : p;
+  btn.title = p;
+  btn.onclick = () => { currentPrompt = p; updatePromptButtons(); showResponses(); };
+  promptSelector.appendChild(btn);
+});
+
+function updatePromptButtons() {
+  const btns = promptSelector.querySelectorAll('.model-btn');
+  prompts.forEach((p, i) => {
+    btns[i].className = 'model-btn' + (p === currentPrompt ? ' active' : '');
+  });
+}
+
+function showResponses() {
+  const container = document.getElementById('responseComparison');
+  let html = '';
+  allModels.forEach(m => {
+    const btn = modelSelector.querySelector(`.model-btn:nth-child(${allModels.indexOf(m)+1})`);
+    if (btn.classList.contains('active')) {
+      let resp = responses[m][currentPrompt];
+      let lines = resp.split('\n');
+      if (lines.length > 2) {
+        resp = lines.slice(0, 2).join('\n') + '...';
+      }
+      html += `<div class="code-example"><div class="label">${modelLabels[m]}</div><div class="response" style="max-height:200px;overflow-y:auto;line-height:1.6">${resp}</div></div>`;
+    }
+  });
+  container.innerHTML = html;
+}
+showResponses();
+</script>
+</body>
+</html>
