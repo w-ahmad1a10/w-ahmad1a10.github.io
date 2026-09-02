@@ -4,12 +4,11 @@ title: About
 permalink: /about/
 ---
 
-Some information about you!
+## Hi, I'm Waleed Ahmad
 
-### More Information
+I'm an AI researcher exploring and thinking about neural networks.
+I am 16 . 
+More projects soon . 
 
-A place to include any other types of information that you'd like to include about yourself.
 
-### Contact me
 
-[email@domain.com](mailto:email@domain.com)
