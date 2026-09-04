@@ -1,0 +1,860 @@
+---
+layout: none
+title: "True KV Cache : Why KV cache efficiency matters more than model size"
+permalink: /blog/truekvcache.html
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>True KV Cache</title>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<style>
+html,body{background:#0a0e0a!important}body{background:#0a0e0a!important;color:#62ff94!important;font-family:Consolas,'Courier New',monospace!important}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#0a0e0a;color:#62ff94}
+.header{background:linear-gradient(135deg,#0e130d,#141c12);padding:24px 32px;border-bottom:1px solid #1e2a1b}
+.header h1{font-size:22px;color:#62ff94;margin-bottom:4px}
+.header p{font-size:13px;color:#8ca391}
+.box{background:#0e130d;border:1px solid #1e2a1b;border-radius:8px;padding:16px;margin-bottom:16px}
+.section-title{font-size:16px;color:#62ff94;margin-bottom:12px;font-weight:600}
+.info{font-size:13px;color:#8ca391;margin-bottom:8px;line-height:1.6}
+.highlight{color:#ffa83d;font-weight:600}
+.emphasis{color:#2eff6a;font-weight:600}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th,td{padding:8px 12px;text-align:left;border-bottom:1px solid #1e2a1b}
+th{color:#8ca391;font-weight:500;text-transform:uppercase;font-size:11px}
+td{color:#62ff94}
+tr:hover td{background:#141c12}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.code-example{background:#0e130d;border:1px solid #1e2a1b;border-radius:6px;padding:12px;margin:8px 0;font-size:12px;color:#bfe9c9;overflow-x:auto}
+.code-example .label{font-size:10px;color:#8ca391;text-transform:uppercase;margin-bottom:4px}
+.code-example .response{color:#ffa83d}
+.tab-bar{display:flex;gap:0;padding:0 32px;background:#0e130d;border-bottom:1px solid #1e2a1b}
+.tab{padding:10px 20px;font-size:13px;color:#8ca391;cursor:pointer;border-bottom:2px solid transparent;transition:all .2s}
+.tab:hover{color:#62ff94}
+.tab.active{color:#62ff94;border-bottom-color:#62ff94}
+.chart-container{padding:16px 32px}
+.chart-box{background:#0e130d;border:1px solid #1e2a1b;border-radius:8px;padding:16px;margin-bottom:16px;position:relative;overflow:visible}
+.chart-box>div[id^="plot-"]{width:100%!important;min-height:350px}
+.model-panel{background:#0a0e0a;border:1px solid #1e2a1b;border-radius:6px;padding:8px 12px;max-height:220px;overflow-y:auto;min-width:260px}
+.mp-title{font-size:11px;color:#8ca391;text-transform:uppercase;margin-bottom:6px}
+.model-opt{font-size:11px;padding:3px 0;cursor:pointer;display:flex;align-items:center;gap:6px;color:#8ca391}
+.model-opt input{cursor:pointer}
+.model-opt:hover{color:#62ff94}
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-top:12px}
+.stat-card{background:#0a0e0a;border:1px solid #1e2a1b;border-radius:6px;padding:12px}
+.stat-card .label{font-size:10px;color:#8ca391;text-transform:uppercase;letter-spacing:.5px}
+.stat-card .value{font-size:18px;color:#62ff94;margin-top:4px}
+.stat-card .sub{font-size:10px;color:#8ca391;margin-top:2px}
+.formula-panel{padding:10px 32px;background:#0a0e0a;border-bottom:1px solid #1e2a1b;font-size:12px;color:#8ca391}
+.formula-panel code{color:#2eff6a;background:#0e130d;padding:2px 6px;border-radius:4px}
+.hidden{display:none!important}
+.bar-cell{min-width:120px}
+.bar-bg{background:#141c12;border-radius:4px;height:18px;position:relative;overflow:hidden}
+.bar-fill{height:100%;border-radius:4px;transition:width .3s}
+.bar-text{position:absolute;right:6px;top:0;font-size:10px;color:#0a0e0a;font-weight:700;line-height:18px}
+.badge{font-size:9px;padding:1px 5px;border-radius:3px;text-transform:uppercase}
+.badge-dense{background:#1a2a1a;color:#62ff94;border:1px solid #62ff94}
+.badge-moe{background:#1a2a2a;color:#30b3ff;border:1px solid #30b3ff}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>True KV Cache</h1>
+  <p>Why KV cache efficiency matters more than model size — and here is the proof</p>
+</div>
+
+<div style="padding:24px 32px">
+
+  <div class="box">
+    <div class="section-title">What Is KV Cache?</div>
+    <div class="info">
+      KV cache is GPU's memory for every token that it saw in the conversation. It is stored as key/value pairs. It is there because model can look back at history. Every new token gets added to this cache. At 1 million tokens, that cache can get huge and create problems.
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="section-title">Why This Project Exists</div>
+    <div class="info">
+      Now here, I am not going to discuss which architecture and explain it. This project was done to actually show how important efficiency of KV cache is for modern LLMs, where most of our tasks hit 1 million tokens context, and agentic work requires high speed.
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="section-title">Model Size Is Not Enough</div>
+    <div class="info">
+      This project shows that model size is not enough. For instance, the model MiniMax M2.7 (230 Billion parameters and only 10 billion active parameters) is way smaller as compared to the massive Kimi K3 which has 2.8 Trillion parameters with 104 Billion active parameters.
+    </div>
+
+    <div class="code-example">
+      <div class="label">Example:</div>
+      <div class="response">Now Kimi K3 has almost 12× more total parameters and 10× more active parameters. But still at 1 million context, the total bytes read by the GPU per decode step for MiniMax M2.7 is 10% higher than the behemoth Kimi K3 — for M2.7, GPU read 256 GB but for K3 it read 233 GB at 1 million context.</div>
+    </div>
+    <div class="code-example">
+      <div class="label">Example:</div>
+      <div class="response">Now to reinforce this example and give credit to DeepSeek: I would mention Qwen 3 600 Million parameters — it is pretty small. Yes, and now DeepSeek V4 Flash with total parameters being 284 Billion and Active parameters are 13 Billion which is roughly 22× more than Qwen 3 600 Million. But at 1 million context, the bytes read by GPU from memory for Qwen 3 600M is 233.33% higher than DeepSeek V4 Flash. So this shows that KV CACHE EFFICIENCY IS MORE IMPORTANT THAN MODEL SIZE.</div>
+    </div>
+    <div class="chart-box">
+      <div id="plot-m2.7-vs-k3" style="height:350px;width:100%;background:#0e130d"></div>
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="section-title">The Formula</div>
+    <div class="info">
+      Every time a model generates one token, the GPU pulls two things from HBM (High Bandwidth Memory):
+    </div>
+    <div class="code-example">
+      <div class="label">1. The active weights</div>
+      <div class="response">Parameters actually used in that forward pass — to run the computation</div>
+    </div>
+    <div class="code-example">
+      <div class="label">2. The KV cache</div>
+      <div class="response">Stored keys and values for every token generated so far — so attention can look back at history</div>
+    </div>
+    <div class="info">
+      Decode is memory-bandwidth-bound — the GPU's math units sit mostly idle waiting for data to arrive from HBM. So time per token is dictated by <span class="emphasis">how many bytes get moved</span>, not how many FLOPs get computed.
+    </div>
+    <div class="code-example">
+      <div class="label">KV Cache Share (%)</div>
+      <div class="response">KV_cache_bytes / (KV_cache_bytes + Active_weight_bytes) × 100</div>
+    </div>
+    <div class="info" style="color:#e6d5a8">
+      This is a traffic split, not a size comparison. It answers: of the total bytes streamed per token, what fraction is "remembering the past" vs. "running the model."
+    </div>
+    <div class="chart-box">
+      <div id="plot-traffic-compare" style="height:400px;width:100%;background:#0e130d"></div>
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="section-title">What It Means</div>
+    <div class="info">
+      <span class="highlight">Low %</span> (near 0%) → the model is weight-bound. Almost all memory traffic is loading the model itself. Context length barely affects decode speed.
+    </div>
+    <div class="info">
+      <span class="highlight">~50%</span> → the tipping point. Cache and weights cost equally much to read per token.
+    </div>
+    <div class="info">
+      <span class="highlight">High %</span> (near 100%) → the model is cache-bound. The GPU is spending most of its memory bandwidth just re-reading conversation history, not the model. This is where long-context decode slows to a crawl regardless of how small or fast the model itself is.
+    </div>
+    <div class="info">
+      <span class="emphasis">KV Cache Share Is The Percentage of Total Bytes Read From Memory That Belong To KV Cache</span>
+    </div>
+    <div class="info">
+      Higher this number translates directly to lower throughput at large context. This shows efficiency of language model.
+    </div>
+    <div class="info">
+      At 50% KV cache share, it means that GPU spends half the time fetching KV cache and the other half moving model weights. If it is less than 50%, the architecture is weight-bound — that is perfectly fine. But higher than 50% means the architecture and GPU are now KV cache-bound. A model with less KV cache share percentage is a great model.
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="section-title">Why Context Length Is the Hidden Variable</div>
+    <div class="info">
+      At short context, KV cache is tiny and weights dominate — the percentage sits near 0%. As context grows, KV cache grows linearly with tokens while weight bytes stay fixed. So this percentage isn't a static property of a model — it's a curve that climbs as context grows:
+    </div>
+    <div class="info">
+      That is why we took context at <span class="emphasis">1 million tokens</span>, which is the upper limit for almost all frontier models. Some models we tested at 1M context don't actually use that limit — but this was to show efficiency of the architecture used.
+    </div>
+    <div class="chart-box">
+      <div id="plot-context-curve" style="height:300px;width:100%;background:#0e130d"></div>
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="section-title">What "Relative decode speed ≈ 1 − KV Cache Share" Means</div>
+    <div class="info">
+      This formula estimates how much slower token generation gets as context increases, compared to short context.
+    </div>
+    <div class="info">
+      The derivation
+    </div>
+    <div class="info">
+      Starting from the core assumption that decode time per token is dominated by memory bandwidth:
+    </div>
+    <div class="code-example">
+      <div class="response">Time_current_context ∝ Total_bytes_read = Weight_bytes + KV_cache_bytes</div>
+    </div>
+    <div class="info">
+      Time_current_context means the time taken to generate a single token at present context. At short context, KV cache is negligible, so the baseline time is essentially just weight-loading time:
+    </div>
+    <div class="code-example">
+      <div class="response">Time_short_context ∝ Weight_bytes</div>
+    </div>
+    <div class="info">
+      Relative speed is baseline time divided by current time (faster = ratio closer to 1):
+    </div>
+    <div class="code-example">
+      <div class="response">Relative speed = Time_short_context / Time_current_context = Weight_bytes / (Weight_bytes + KV_bytes)</div>
+    </div>
+    <div class="info">
+      Now simplifying it:
+    </div>
+    <div class="code-example">
+      <div class="response">Weight_bytes / (Weight_bytes + KV_bytes)<br>
+= (Weight_bytes + KV_bytes − KV_bytes) / (Weight_bytes + KV_bytes)<br>
+= 1 − KV_bytes / (Weight_bytes + KV_bytes)<br>
+= 1 − KV Cache Share</div>
+    </div>
+    <div class="info">
+      That last term, KV_bytes / (Weight_bytes + KV_bytes), is the percentage we defined earlier. If cache is X% of your traffic, weights are the remaining (100−X)%, and that remaining share is your relative speed.
+    </div>
+    <div class="info">
+      <span class="emphasis">Concrete meaning</span>
+    </div>
+    <div class="info">
+      If KV Cache Share = 74% (Minimax M3 at 1M context):
+    </div>
+    <div class="code-example">
+      <div class="response">Relative decode speed ≈ 1 − 0.74 = 0.26</div>
+    </div>
+    <div class="code-example">
+      <div class="label">Example:</div>
+      <div class="response">Meaning: at 1M tokens of context, Minimax M3 generates tokens at roughly 26% of the speed it would achieve at near-zero context, purely because of memory traffic — the GPU is spending 74% of its time re-reading history instead of running the model.</div>
+    </div>
+    <div class="code-example">
+      <div class="label">Example:</div>
+      <div class="response">On the other hand, the massive new model of Kimi K3 that has active parameters of 104 Billion, it has KV cache share of only 11% at 1M context, which means that it is a very efficient architecture and it will have relative speed of 89% at 1M context.</div>
+    </div>
+    <div class="code-example">
+      <div class="label">Example:</div>
+      <div class="response">Now do not get started on DeepSeek V4 Pro — it is really special as it sits at 8.6%. Kimi does not get enough credit for their design. Also DeepSeek V4 Flash has 19.8% KV cache share at 1M context and MiMo V2.5 sits closer to it. To understand how efficient Kimi has made their architecture, compare K3's 11% share with Qwen 3.8 Max which has 94B active parameters and KV cache share of 31.6%.</div>
+    </div>
+    <div class="chart-box">
+      <div id="plot-relspeed-bar" style="height:350px;width:100%;background:#0e130d"></div>
+    </div>
+    <div class="info">
+      <span class="emphasis">Why this is a useful shortcut</span>
+    </div>
+    <div class="info">
+      Normally, predicting decode throughput requires knowing actual HBM bandwidth (GB/s), kernel efficiency, batch size, MTP, and much more. This formula gives you a relative slowdown factor using only a ratio of bytes, which cancels out hardware-specific constants.
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="section-title">Why Llama 70B Was Not Bad For Its Time</div>
+    <div class="info">
+      And what surprised me: Llama 70 Billion was not so bad for its time because it uses GQA such that there were 64 total query heads and there were 8 key_value heads. So there was ratio 1/8. So formula was this:
+    </div>
+    <div class="code-example">
+      <div class="label">KV Cache Formula (GQA)</div>
+      <div class="response">KV cache = tokens × layers × 2 × num_key_value_heads × head_dim × precision_bytes</div>
+    </div>
+    <div class="info">
+      Now Llama 3.1 8B has more KV cache share. Why? Because its ratio was 1/4 so there were 32 total query heads per layer and 8 key_value heads. Due to that ratio, KV cache share changed.
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="section-title">Layer Depth Invariance</div>
+    <div class="info">
+      For dense models, total params are proportional to layer count L:
+    </div>
+    <div class="code-example">
+      <div class="response">params(L) = base_params_per_layer × L = C × L</div>
+    </div>
+    <div class="info">
+      And KV cache is also proportional to L:
+    </div>
+    <div class="code-example">
+      <div class="response">KV_cache(L) = base_kv_per_layer × L = K × L</div>
+    </div>
+    <div class="info">
+      KV cache share:
+    </div>
+    <div class="code-example">
+      <div class="response">KV_share(L) = KV_cache(L) / (KV_cache(L) + Active_params(L))<br>
+            = (K × L) / (K × L + C × L)<br>
+            = K × L / L(K + C)<br>
+            = K / (K + C)</div>
+    </div>
+    <div class="info">
+      L cancels out completely. The share depends only on K/(K+C), which are per-layer constants (head_dim, num_kv_heads, precision), not on how many layers exist.
+    </div>
+    <div class="info">
+      <span class="emphasis">Numerical proof with Llama 3.3 70B:</span>
+    </div>
+    <table>
+      <thead><tr><th>Layers</th><th class="num">KV Cache</th></tr></thead>
+      <tbody>
+        <tr><td>80</td><td class="num">305.2 GB</td></tr>
+        <tr><td>40</td><td class="num">152.6 GB</td></tr>
+        <tr><td>20</td><td class="num">76.3 GB</td></tr>
+        <tr><td>10</td><td class="num">38.1 GB</td></tr>
+      </tbody>
+    </table>
+    <div class="info" style="margin-top:8px">
+      Same ratio at every layer count.
+    </div>
+  </div>
+
+</div>
+
+<!-- LEADERBOARD -->
+
+<div style="padding:0 32px 8px 32px">
+  <div class="box">
+    <div class="section-title">The Leaderboard — 57 LLMs at 1M Tokens</div>
+    <div class="info">
+      Below is the full interactive leaderboard. Toggle models, sort by different metrics, and explore the data yourself. Low KV share = weight-bound (context barely slows decode). High KV share = cache-bound (long context kills throughput).
+    </div>
+  </div>
+</div>
+
+<div class="header" style="padding:16px 32px">
+  <h1 style="font-size:18px">KV Cache Efficiency Leaderboard</h1>
+  <p>57 LLMs — % of decode memory traffic that is KV cache</p>
+  <p style="margin-top:4px;font-size:12px">Context: 1M tokens · BF16 (2 bytes/param) · KV cache: kvcache-ai/kvcache-blog · Low % = weight-bound · High % = cache-bound</p>
+</div>
+
+<div class="tab-bar">
+  <div class="tab active" onclick="switchTab('leaderboard')">Leaderboard</div>
+  <div class="tab" onclick="switchTab('scatter')">KV vs Params</div>
+  <div class="tab" onclick="switchTab('table')">Data Table</div>
+  <div class="tab" onclick="switchTab('relspeed')">Relative Speed</div>
+  <div class="tab" onclick="switchTab('traffic')">Total Traffic</div>
+</div>
+
+<div class="formula-panel">
+<code>kv_share_% = KV_cache_GB / (KV_cache_GB + active_params_GB) × 100</code>
+&nbsp;&nbsp;·&nbsp;&nbsp;
+<code>rel_speed_% = 100 − kv_share_%</code>
+&nbsp;&nbsp;·&nbsp;&nbsp;
+% of HBM reads per token that are KV cache. Near 0% = weight-bound. Near 100% = cache-bound.
+<br><br>
+rel. decode speed = 100 − KV_cache_share_%&nbsp;&nbsp;—&nbsp;&nbsp;At short context, almost all memory traffic is weights (rel. speed ≈ 100%). At 1M tokens, rel. speed tells you what fraction of peak throughput remains. E.g. Minimax M3 at 73% KV share → only 27% rel. speed. Kimi K3 at 11% KV share → 89% rel. speed.
+</div>
+
+<div class="chart-container">
+
+  <div id="tab-leaderboard">
+    <div style="display:flex;gap:16px;padding:0 0 16px 0;flex-wrap:wrap;align-items:flex-start">
+      <div class="model-panel">
+        <div class="mp-title">Models <span style="float:right;cursor:pointer;color:#30b3ff" onclick="selectAll(true)">all</span> / <span style="cursor:pointer;color:#62ff94" onclick="selectAll(false)">none</span></div>
+        <div id="model-list"></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div><label style="font-size:12px;color:#8ca391">Sort by:</label>
+        <select id="sel-sort" onchange="updateView()" style="background:#141c12;color:#62ff94;border:1px solid #1e2a1b;padding:5px 10px;border-radius:5px;font-size:12px;cursor:pointer">
+          <option value="kvshare">KV Share % (asc)</option>
+          <option value="relspeed">Rel. Speed % (desc)</option>
+          <option value="totalgb">Total Traffic GB</option>
+          <option value="kv">KV Cache GB</option>
+          <option value="params">Active Params</option>
+          <option value="name">Name</option>
+        </select></div>
+      </div>
+    </div>
+    <div class="chart-box">
+      <div class="section-title">KV Cache Share % — Lower = Weight-Bound (Context Doesn't Slow Decode)</div>
+      <div id="plot-leaderboard" style="height:900px"></div>
+    </div>
+    <div class="chart-box">
+      <div class="section-title">Quick Summary</div>
+      <div id="stat-cards" class="stat-grid"></div>
+    </div>
+  </div>
+
+  <div id="tab-scatter" class="hidden">
+    <div style="display:flex;gap:16px;padding:0 0 16px 0">
+      <div class="model-panel">
+        <div class="mp-title">Models <span style="float:right;cursor:pointer;color:#30b3ff" onclick="selectAll(true)">all</span> / <span style="cursor:pointer;color:#62ff94" onclick="selectAll(false)">none</span></div>
+        <div id="model-list-scatter"></div>
+      </div>
+    </div>
+    <div class="chart-box">
+      <div class="section-title">KV Cache GB vs Active Params B</div>
+      <div class="info">Color intensity = KV share % (brighter green = lower share = more weight-dominant). Size ~ KV share.</div>
+      <div id="plot-scatter" style="height:600px"></div>
+      <div class="scatter-hint">Top-left = tiny model, big cache. Bottom-right = huge model, small cache.</div>
+    </div>
+  </div>
+
+  <div id="tab-table" class="hidden">
+    <div style="display:flex;gap:16px;padding:0 0 16px 0">
+      <div class="model-panel">
+        <div class="mp-title">Models <span style="float:right;cursor:pointer;color:#30b3ff" onclick="selectAll(true)">all</span> / <span style="cursor:pointer;color:#62ff94" onclick="selectAll(false)">none</span></div>
+        <div id="model-list-table"></div>
+      </div>
+    </div>
+    <div class="chart-box">
+      <div class="section-title">Full Data Table</div>
+      <div id="table-container"></div>
+    </div>
+  </div>
+
+  <div id="tab-relspeed" class="hidden">
+    <div style="display:flex;gap:16px;padding:0 0 16px 0">
+      <div class="model-panel">
+        <div class="mp-title">Models <span style="float:right;cursor:pointer;color:#30b3ff" onclick="selectAll(true)">all</span> / <span style="cursor:pointer;color:#62ff94" onclick="selectAll(false)">none</span></div>
+        <div id="model-list-relspeed"></div>
+      </div>
+    </div>
+    <div class="chart-box">
+      <div class="section-title">Relative Decode Speed % — Higher is Better</div>
+      <div class="info">How fast decode is at 1M tokens vs. short context. 100% = no slowdown. Below 50% = severe cache bottleneck.</div>
+      <div id="plot-relspeed" style="height:900px"></div>
+    </div>
+    <div class="chart-box">
+      <div class="section-title">Rel. Speed vs Active Parameters</div>
+      <div class="info">X = active params (B, log scale). Y = relative decode speed %. Top-left = small & efficient. Top-right = large & efficient.</div>
+      <div id="plot-relspeed-scatter" style="height:600px"></div>
+    </div>
+  </div>
+
+  <div id="tab-traffic" class="hidden">
+    <div style="display:flex;gap:16px;padding:0 0 16px 0">
+      <div class="model-panel">
+        <div class="mp-title">Models <span style="float:right;cursor:pointer;color:#30b3ff" onclick="selectAll(true)">all</span> / <span style="cursor:pointer;color:#62ff94" onclick="selectAll(false)">none</span></div>
+        <div id="model-list-traffic"></div>
+      </div>
+    </div>
+    <div class="chart-box">
+      <div class="section-title">Total HBM Traffic (Weights + KV Cache) at 1M Tokens — Lower is Better</div>
+      <div class="info">Total bytes the GPU must read from HBM per decode token at 1M context. Combines active weights + KV cache.</div>
+      <div id="plot-traffic" style="height:900px"></div>
+    </div>
+    <div class="chart-box">
+      <div class="section-title">Total Traffic vs Active Parameters</div>
+      <div class="info">X = active params (B, log scale). Y = total GB read per token. Points above the trend = heavy KV cache overhead.</div>
+      <div id="plot-traffic-scatter" style="height:600px"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const DATA = [
+  {"id":"deepseek-v4-pro","kv":9.1791,"ap":49.0,"wg":98.0,"kvshare":8.5643,"family":"DeepSeek","formula":"deepseek_v4_hybrid","type":"moe"},
+  {"id":"kimi-k3","kv":25.7492,"ap":104.0,"wg":208.0,"kvshare":11.0157,"family":"Kimi","formula":"kimi_kda_mla_hybrid","type":"moe"},
+  {"id":"meta-models/Muse-Glimmer-30B","kv":13.0,"ap":30.0,"wg":60.0,"kvshare":17.8082,"family":"meta","formula":"gqa","type":"dense"},
+  {"id":"deepseek-v4-flash","kv":6.4127,"ap":13.0,"wg":26.0,"kvshare":19.7845,"family":"DeepSeek","formula":"deepseek_v4_hybrid","type":"moe"},
+  {"id":"cohere-command-a-03-2025","kv":61.7852,"ap":111.0,"wg":222.0,"kvshare":21.7718,"family":"Cohere","formula":"mixed_full_sliding_gqa","type":"moe"},
+  {"id":"qwen3.8-2.4t-a95b","kv":87.738,"ap":95.0,"wg":190.0,"kvshare":31.5902,"family":"Qwen3.8","formula":"qwen_linear_full_hybrid","type":"moe"},
+  {"id":"inkling","kv":45.29304,"ap":41.0,"wg":82.0,"kvshare":35.5817,"family":"","formula":"inkling_hybrid","type":"moe"},
+  {"id":"mimo-v2.5-pro","kv":47.7203,"ap":42.0,"wg":84.0,"kvshare":36.2285,"family":"MiMo","formula":"mixed_full_sliding_gqa","type":"moe"},
+  {"id":"cohere-command-a-plus-05-2026","kv":30.8926,"ap":25.0,"wg":50.0,"kvshare":38.1896,"family":"Cohere","formula":"mixed_full_sliding_gqa","type":"moe"},
+  {"id":"mimo-v2.5","kv":21.4815,"ap":15.0,"wg":30.0,"kvshare":41.7266,"family":"MiMo","formula":"mixed_full_sliding_gqa","type":"moe"},
+  {"id":"qwen3.5-397b-a17b","kv":28.6102,"ap":17.0,"wg":34.0,"kvshare":45.6957,"family":"Qwen3.5","formula":"qwen_linear_full_hybrid","type":"moe"},
+  {"id":"deepseek-v3","kv":65.4459,"ap":37.0,"wg":74.0,"kvshare":46.9328,"family":"DeepSeek","formula":"mla","type":"moe"},
+  {"id":"deepseek-r1","kv":65.4459,"ap":37.0,"wg":74.0,"kvshare":46.9328,"family":"DeepSeek","formula":"mla","type":"moe"},
+  {"id":"kimi-k2.5","kv":65.4459,"ap":32.0,"wg":64.0,"kvshare":50.5585,"family":"Kimi","formula":"mla","type":"moe"},
+  {"id":"kimi-k2.6","kv":65.4459,"ap":32.0,"wg":64.0,"kvshare":50.5585,"family":"Kimi","formula":"mla","type":"moe"},
+  {"id":"deepseek-v3.2","kv":79.9894,"ap":37.0,"wg":74.0,"kvshare":51.9447,"family":"DeepSeek","formula":"dsa_mla","type":"moe"},
+  {"id":"glm-5.2","kv":88.6917,"ap":40.0,"wg":80.0,"kvshare":52.5762,"family":"GLM","formula":"dsa_mla","type":"moe"},
+  {"id":"qwen3.6-27b","kv":61.0352,"ap":27.0,"wg":54.0,"kvshare":53.0578,"family":"Qwen3.6","formula":"qwen_linear_full_hybrid","type":"dense"},
+  {"id":"qwen3.5-27b","kv":61.0352,"ap":27.0,"wg":54.0,"kvshare":53.0578,"family":"Qwen3.5","formula":"qwen_linear_full_hybrid","type":"dense"},
+  {"id":"qwen3.5-122b-a10b","kv":22.8882,"ap":10.0,"wg":20.0,"kvshare":53.3671,"family":"Qwen3.5","formula":"qwen_linear_full_hybrid","type":"moe"},
+  {"id":"cohere-command-r-plus","kv":244.1406,"ap":104.0,"wg":208.0,"kvshare":53.9966,"family":"Cohere","formula":"standard_gqa","type":"dense"},
+  {"id":"inkling-small","kv":28.74798,"ap":12.0,"wg":24.0,"kvshare":54.5006,"family":"","formula":"inkling_hybrid","type":"moe"},
+  {"id":"gemma-4-31b","kv":77.0752,"ap":31.0,"wg":62.0,"kvshare":55.4198,"family":"Gemma","formula":"mixed_full_sliding_gqa","type":"dense"},
+  {"id":"gemma-4-e2b","kv":5.7279,"ap":2.3,"wg":4.6,"kvshare":55.4605,"family":"Gemma","formula":"mixed_full_sliding_gqa","type":"moe"},
+  {"id":"glm-5","kv":102.2816,"ap":40.0,"wg":80.0,"kvshare":56.1119,"family":"GLM","formula":"dsa_mla","type":"moe"},
+  {"id":"glm-5.1","kv":102.2816,"ap":40.0,"wg":80.0,"kvshare":56.1119,"family":"GLM","formula":"dsa_mla","type":"moe"},
+  {"id":"qwen3.5-9b","kv":30.5176,"ap":9.0,"wg":18.0,"kvshare":62.9001,"family":"Qwen3.5","formula":"qwen_linear_full_hybrid","type":"dense"},
+  {"id":"gemma-4-e4b","kv":15.2783,"ap":4.5,"wg":9.0,"kvshare":62.9299,"family":"Gemma","formula":"mixed_full_sliding_gqa","type":"moe"},
+  {"id":"qwen2.5-72b","kv":305.1758,"ap":72.0,"wg":144.0,"kvshare":67.9413,"family":"Qwen2.5","formula":"standard_gqa","type":"dense"},
+  {"id":"llama-3.1-70b","kv":305.1758,"ap":70.0,"wg":140.0,"kvshare":68.5517,"family":"Llama","formula":"standard_gqa","type":"dense"},
+  {"id":"llama-3.3-70b","kv":305.1758,"ap":70.0,"wg":140.0,"kvshare":68.5517,"family":"Llama","formula":"standard_gqa","type":"dense"},
+  {"id":"cohere-command-r7b-12-2024","kv":30.8926,"ap":7.0,"wg":14.0,"kvshare":68.8145,"family":"Cohere","formula":"mixed_full_sliding_gqa","type":"dense"},
+  {"id":"gemma-4-26b-a4b","kv":19.2688,"ap":3.8,"wg":7.6,"kvshare":71.7144,"family":"Gemma","formula":"mixed_full_sliding_gqa","type":"moe"},
+  {"id":"minimax-m3","kv":128.0308,"ap":23.0,"wg":46.0,"kvshare":73.5679,"family":"MiniMax","formula":"minimax_msa","type":"moe"},
+  {"id":"qwen3.5-2b","kv":11.4441,"ap":2.0,"wg":4.0,"kvshare":74.1001,"family":"Qwen3.5","formula":"qwen_linear_full_hybrid","type":"dense"},
+  {"id":"qwen3.6-35b-a3b","kv":19.0735,"ap":3.0,"wg":6.0,"kvshare":76.0704,"family":"Qwen3.6","formula":"qwen_linear_full_hybrid","type":"moe"},
+  {"id":"qwen3.5-35b-a3b","kv":19.0735,"ap":3.0,"wg":6.0,"kvshare":76.0704,"family":"Qwen3.5","formula":"qwen_linear_full_hybrid","type":"moe"},
+  {"id":"qwen3-32b","kv":244.1406,"ap":32.0,"wg":64.0,"kvshare":79.2303,"family":"Qwen3","formula":"standard_gqa","type":"dense"},
+  {"id":"qwen2.5-32b","kv":244.1406,"ap":32.0,"wg":64.0,"kvshare":79.2303,"family":"Qwen2.5","formula":"standard_gqa","type":"dense"},
+  {"id":"qwen2.5-coder-32b","kv":244.1406,"ap":32.0,"wg":64.0,"kvshare":79.2303,"family":"Qwen2.5","formula":"standard_gqa","type":"dense"},
+  {"id":"qwen3.5-4b","kv":30.5176,"ap":4.0,"wg":8.0,"kvshare":79.2303,"family":"Qwen3.5","formula":"qwen_linear_full_hybrid","type":"dense"},
+  {"id":"qwen2.5-7b","kv":53.4058,"ap":7.0,"wg":14.0,"kvshare":79.2303,"family":"Qwen2.5","formula":"standard_gqa","type":"dense"},
+  {"id":"qwen3-235b-a22b","kv":179.2908,"ap":22.0,"wg":44.0,"kvshare":80.2948,"family":"Qwen3","formula":"standard_gqa","type":"moe"},
+  {"id":"qwen3-14b","kv":152.5879,"ap":14.0,"wg":28.0,"kvshare":84.4951,"family":"Qwen3","formula":"standard_gqa","type":"dense"},
+  {"id":"qwen2.5-14b","kv":183.1055,"ap":14.0,"wg":28.0,"kvshare":86.7365,"family":"Qwen2.5","formula":"standard_gqa","type":"dense"},
+  {"id":"qwen3.5-0.8b","kv":11.4441,"ap":0.8,"wg":1.6,"kvshare":87.7339,"family":"Qwen3.5","formula":"qwen_linear_full_hybrid","type":"dense"},
+  {"id":"llama-3.1-8b","kv":122.0703,"ap":8.0,"wg":16.0,"kvshare":88.4117,"family":"Llama","formula":"standard_gqa","type":"dense"},
+  {"id":"qwen3-8b","kv":137.3291,"ap":8.0,"wg":16.0,"kvshare":89.5649,"family":"Qwen3","formula":"standard_gqa","type":"dense"},
+  {"id":"minimax-m2.1","kv":236.5112,"ap":10.0,"wg":20.0,"kvshare":92.2031,"family":"MiniMax","formula":"standard_gqa","type":"moe"},
+  {"id":"minimax-m2.5","kv":236.5112,"ap":10.0,"wg":20.0,"kvshare":92.2031,"family":"MiniMax","formula":"standard_gqa","type":"moe"},
+  {"id":"minimax-m2.7","kv":236.5112,"ap":10.0,"wg":20.0,"kvshare":92.2031,"family":"MiniMax","formula":"standard_gqa","type":"moe"},
+  {"id":"minimax-m2","kv":236.5112,"ap":9.8,"wg":19.6,"kvshare":92.3471,"family":"MiniMax","formula":"standard_gqa","type":"moe"},
+  {"id":"qwen3-30b-a3b","kv":91.5527,"ap":3.3,"wg":6.6,"kvshare":93.2758,"family":"Qwen3","formula":"standard_gqa","type":"moe"},
+  {"id":"qwen3-4b","kv":137.3291,"ap":4.0,"wg":8.0,"kvshare":94.4953,"family":"Qwen3","formula":"standard_gqa","type":"dense"},
+  {"id":"cohere-command-r-v01","kv":1220.7031,"ap":35.0,"wg":70.0,"kvshare":94.5766,"family":"Cohere","formula":"standard_gqa","type":"dense"},
+  {"id":"qwen3-1.7b","kv":106.8115,"ap":1.7,"wg":3.4,"kvshare":96.915,"family":"Qwen3","formula":"standard_gqa","type":"dense"},
+  {"id":"qwen3-0.6b","kv":106.8115,"ap":0.6,"wg":1.2,"kvshare":98.889,"family":"Qwen3","formula":"standard_gqa","type":"dense"},
+];
+
+const FAMILY_COLORS = {
+  deepseek:'#30b3ff', qwen:'#2eff6a', llama:'#c770ff',
+  gemma:'#60b3ff', glm:'#ffa83d', cohere:'#8ca3ff',
+  kimi:'#ff4b4b', minimax:'#60c3ff', mimo:'#60ff60',
+  inkling:'#ff7070', meta:'#c0c0c0', default:'#8ca391'
+};
+const TYPE_TAG = {moe:'MoE', dense:'Dense'};
+
+let selectedModels = [...DATA];
+let currentTab = 'leaderboard';
+
+function typeBadge(type, kvshare){
+  if(kvshare > 80) return `<span class="badge badge-dense">${TYPE_TAG[type]} ⚠</span>`;
+  if(kvshare > 50) return `<span class="badge badge-moe">${TYPE_TAG[type]} ⚠</span>`;
+  return `<span class="badge badge-${type}">${TYPE_TAG[type]}</span>`;
+}
+
+function shareColor(kvshare){
+  const t = Math.min(kvshare / 100, 1);
+  const r = Math.floor(t * 220);
+  const g = Math.floor(220 - t * 170);
+  const b = Math.floor(80 - t * 50);
+  return `rgb(${r},${g},${b})`;
+}
+
+function getDisplay(){
+  const sortKey = document.getElementById('sel-sort').value;
+  let d = selectedModels;
+  const sortMap = {kvshare:'kvshare', kv:'kv', params:'ap', name:'id'};
+  d = [...d].sort((a,b) => {
+    if(sortMap[sortKey] === 'id') return a.id.localeCompare(b.id);
+    if(sortKey === 'relspeed') return (b.kvshare) - (a.kvshare);
+    if(sortKey === 'totalgb') return (a.kv + a.wg) - (b.kv + b.wg);
+    return a[sortMap[sortKey]] - b[sortMap[sortKey]];
+  });
+  return d;
+}
+
+function drawLeaderboard(){
+  const d = getDisplay();
+  const trace = {
+    y: d.map(x => x.id),
+    x: d.map(x => x.kvshare),
+    type: 'bar',
+    orientation: 'h',
+    marker: {color: d.map(x => shareColor(x.kvshare)), line:{color:'#0a0e0a',width:1}},
+    text: d.map(x => x.kvshare.toFixed(1) + '%'),
+    textposition: 'outside',
+    textfont:{color:'#62ff94', size:10},
+    hovertemplate: d.map(x => `<b>${x.id}</b><br>KV Share: ${x.kvshare.toFixed(2)}%<br>Rel. Decode Speed: ${(100-x.kvshare).toFixed(2)}%<br>KV Cache: ${x.kv.toFixed(4)} GB<br>Active Weights: ${x.wg.toFixed(1)} GB<br>Active Params: ${x.ap}B<extra></extra>`)
+  };
+  Plotly.newPlot('plot-leaderboard', [trace], {
+    paper_bgcolor:'#0a0e0a', plot_bgcolor:'#0e130d',
+    font:{color:'#62ff94', size:11},
+    xaxis:{title:'KV Cache Share % — lower = weight-bound (better), higher = cache-bound (worse)', range:[0,105]},
+    yaxis:{autorange:'reversed', title:''},
+    margin:{l:220, r:120, t:10, b:50},
+    shapes:[{type:'line', x0:50, x1:50, y0:0, y1:1, yref:'paper', line:{color:'#ffa83d', width:1, dash:'dash'}}],
+    annotations:[{x:52, y:1.02, yref:'paper', text:'50% tipping point', showarrow:false, font:{color:'#ffa83d', size:10}}],
+    showlegend:false
+  }, {responsive:true});
+
+  const top5 = d.slice(0, 5);
+  const worst5 = d.slice(-5).reverse();
+  const denseModels = d.filter(x=>x.type==='dense');
+  const moeModels = d.filter(x=>x.type==='moe');
+  const medianShare = d[Math.floor(d.length/2)].kvshare;
+  const bestMoE = moeModels[0];
+  const bestDense = denseModels[0];
+  const cacheBound = d.filter(x=>x.kvshare > 50).length;
+
+  let html = '';
+  html += `<div class="stat-card" style="border-color:#ffd700"><div class="label" style="color:#ffd700">#1 Most Weight-Bound</div><div class="value">${top5[0].id}</div><div class="sub">${top5[0].kvshare.toFixed(2)}% KV share</div><div class="sub" style="color:#2eff6a">rel. decode speed: ${(100-top5[0].kvshare).toFixed(1)}%</div></div>`;
+  html += `<div class="stat-card" style="border-color:#c0c0c0"><div class="label" style="color:#c0c0c0">#2</div><div class="value">${top5[1].id}</div><div class="sub">${top5[1].kvshare.toFixed(2)}% KV share</div><div class="sub" style="color:#2eff6a">rel. decode speed: ${(100-top5[1].kvshare).toFixed(1)}%</div></div>`;
+  html += `<div class="stat-card" style="border-color:#cd7f32"><div class="label" style="color:#cd7f32">#3</div><div class="value">${top5[2].id}</div><div class="sub">${top5[2].kvshare.toFixed(2)}% KV share</div><div class="sub" style="color:#2eff6a">rel. decode speed: ${(100-top5[2].kvshare).toFixed(1)}%</div></div>`;
+  html += `<div class="stat-card"><div class="label">Median (shown)</div><div class="value">${medianShare.toFixed(1)}%</div><div class="sub">${d.length} models · median rel. speed: ${(100-medianShare).toFixed(1)}%</div></div>`;
+  html += `<div class="stat-card"><div class="label">Best MoE</div><div class="value">${bestMoE.id}</div><div class="sub">${bestMoE.kvshare.toFixed(2)}% KV share</div><div class="sub" style="color:#2eff6a">rel. decode speed: ${(100-bestMoE.kvshare).toFixed(1)}%</div></div>`;
+  html += `<div class="stat-card"><div class="label">Best Dense</div><div class="value">${bestDense.id}</div><div class="sub">${bestDense.kvshare.toFixed(2)}% KV share</div><div class="sub" style="color:#2eff6a">rel. decode speed: ${(100-bestDense.kvshare).toFixed(1)}%</div></div>`;
+  html += `<div class="stat-card" style="border-color:#ffa83d"><div class="label" style="color:#ffa83d">Cache-Bound (>50%)</div><div class="value">${cacheBound}</div><div class="sub">of ${d.length} — long context is their bottleneck</div></div>`;
+  html += `<div class="stat-card" style="border-color:#ff4b4b"><div class="label" style="color:#ff4b4b">Most Cache-Bound</div><div class="value">${worst5[0].id}</div><div class="sub">${worst5[0].kvshare.toFixed(2)}% KV share</div><div class="sub" style="color:#ff4b4b">rel. decode speed: ${(100-worst5[0].kvshare).toFixed(1)}%</div></div>`;
+  document.getElementById('stat-cards').innerHTML = html;
+}
+
+function drawScatter(){
+  const d = getDisplay();
+  const moe = d.filter(x => x.type === 'moe');
+  const dense = d.filter(x => x.type === 'dense');
+  const traces = [
+    {
+      x: dense.map(x => x.ap), y: dense.map(x => x.kv),
+      mode:'markers+text', type:'scatter',
+      marker:{size:12, color:dense.map(x => shareColor(x.kvshare)), line:{color:'#62ff94',width:0.5}},
+      text:dense.map(x => x.id.split('-').pop()), textposition:'top center',
+      textfont:{color:'#62ff94', size:9},
+      name:'Dense', hovertemplate:dense.map(x => `<b>${x.id}</b><br>KV Share: ${x.kvshare.toFixed(2)}%<br>Rel. Speed: ${(100-x.kvshare).toFixed(1)}%<br>KV: ${x.kv.toFixed(2)} GB<br>Weights: ${x.wg.toFixed(1)} GB<extra></extra>`)
+    },
+    {
+      x: moe.map(x => x.ap), y: moe.map(x => x.kv),
+      mode:'markers+text', type:'scatter',
+      marker:{size:14, color:moe.map(x => shareColor(x.kvshare)), line:{color:'#30b3ff',width:0.5}},
+      text:moe.map(x => x.id.split('-').pop()), textposition:'top center',
+      textfont:{color:'#30b3ff', size:9},
+      name:'MoE', hovertemplate:moe.map(x => `<b>${x.id}</b><br>KV Share: ${x.kvshare.toFixed(2)}%<br>Rel. Speed: ${(100-x.kvshare).toFixed(1)}%<br>KV: ${x.kv.toFixed(2)} GB<br>Weights: ${x.wg.toFixed(1)} GB<extra></extra>`)
+    }
+  ];
+  Plotly.newPlot('plot-scatter', traces, {
+    paper_bgcolor:'#0a0e0a', plot_bgcolor:'#0e130d',
+    font:{color:'#62ff94', size:11},
+    xaxis:{title:'Active Parameters (B)', type:'log', gridcolor:'#1e2a1b'},
+    yaxis:{title:'KV Cache (GB) at 1M tokens', type:'log', gridcolor:'#1e2a1b'},
+    margin:{l:70, r:30, t:30, b:60},
+    legend:{font:{color:'#8ca391', size:11}, bgcolor:'#0e130d'}
+  }, {responsive:true});
+}
+
+function drawTable(){
+  const d = getDisplay();
+  const maxShare = Math.max(...d.map(x => x.kvshare));
+  let html = '<table><thead><tr><th>#</th><th>Model</th><th>Type</th><th class="num">KV Cache GB</th><th class="num">Weight GB</th><th class="num">Active Params</th><th class="num">KV Share %</th><th class="num">Rel. Speed %</th><th>Formula</th></tr></thead><tbody>';
+  d.forEach((m, i) => {
+    const rc = i < 3 ? 'rank rank-'+(i+1) : 'rank';
+    const badge = typeBadge(m.type, m.kvshare);
+    const barW = Math.round((m.kvshare / maxShare) * 100);
+    const relSpeed = (100 - m.kvshare).toFixed(1);
+    html += `<tr><td class="${rc}">${i+1}</td><td>${m.id}</td><td>${badge}</td><td class="num">${m.kv.toFixed(2)}</td><td class="num">${m.wg.toFixed(1)}</td><td class="num">${m.ap}B</td><td class="num"><div class="bar-cell"><div class="bar-bg"><div class="bar-fill" style="width:${barW}%;background:${shareColor(m.kvshare)}"></div><div class="bar-text">${m.kvshare.toFixed(1)}%</div></div></div></td><td class="num" style="color:${m.kvshare > 50 ? '#ff4b4b' : '#2eff6a'}">${relSpeed}%</td><td><span style="font-size:10px;color:#8ca391">${m.formula}</span></td></tr>`;
+  });
+  html += '</tbody></table>';
+  document.getElementById('table-container').innerHTML = html;
+}
+
+function buildToggles(){
+  const ids = ['model-list', 'model-list-scatter', 'model-list-table', 'model-list-relspeed', 'model-list-traffic'];
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if(!el) return;
+    el.innerHTML = '';
+    DATA.forEach((m, i) => {
+      const div = document.createElement('div');
+      div.className = 'model-opt';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.value = i; cb.id = id + '-cb-' + i; cb.checked = selectedModels.includes(DATA[i]);
+      cb.onchange = onToggle;
+      const lbl = document.createElement('label');
+      lbl.htmlFor = id + '-cb-' + i;
+      const warn = m.kvshare > 50 ? ' ⚠' : '';
+      lbl.textContent = `${m.id}  [${TYPE_TAG[m.type]}]${warn}`;
+      lbl.title = `KV Share: ${m.kvshare.toFixed(2)}%`;
+      div.appendChild(cb); div.appendChild(lbl);
+      el.appendChild(div);
+    });
+  });
+}
+
+function onToggle(){
+  selectedModels = [...document.querySelectorAll('input[type=checkbox]:checked')].map(cb => {
+    const idx = +cb.value;
+    return DATA[idx];
+  });
+  updateView();
+}
+
+function selectAll(on){
+  document.querySelectorAll('input[type=checkbox]').forEach(cb => cb.checked = on);
+  onToggle();
+}
+
+function switchTab(tab){
+  currentTab = tab;
+  const tabs = ['leaderboard','scatter','table','relspeed','traffic'];
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', tabs[i] === tab));
+  tabs.forEach(t => document.getElementById('tab-'+t).classList.toggle('hidden', t !== tab));
+  updateView();
+}
+
+function updateView(){
+  if(currentTab === 'leaderboard') drawLeaderboard();
+  else if(currentTab === 'scatter') drawScatter();
+  else if(currentTab === 'table') drawTable();
+  else if(currentTab === 'relspeed') drawRelSpeed();
+  else if(currentTab === 'traffic') drawTotalTraffic();
+}
+
+function drawRelSpeed(){
+  const d = getDisplay();
+  const relSpeed = d.map(x => 100 - x.kvshare);
+  const relColor = d.map(x => (100 - x.kvshare) > 50 ? '#2eff6a' : (100 - x.kvshare) > 25 ? '#ffa83d' : '#ff4b4b');
+  const trace = {
+    y: d.map(x => x.id),
+    x: relSpeed,
+    type: 'bar',
+    orientation: 'h',
+    marker: {color: relColor, line:{color:'#0a0e0a',width:1}},
+    text: d.map(x => (100 - x.kvshare).toFixed(1) + '%'),
+    textposition: 'outside',
+    textfont:{color:'#62ff94', size:10},
+    hovertemplate: d.map(x => `<b>${x.id}</b><br>Rel. Speed: ${(100-x.kvshare).toFixed(2)}%<br>KV Share: ${x.kvshare.toFixed(2)}%<br>KV: ${x.kv.toFixed(2)} GB<br>Weights: ${x.wg.toFixed(1)} GB<extra></extra>`)
+  };
+  Plotly.newPlot('plot-relspeed', [trace], {
+    paper_bgcolor:'#0a0e0a', plot_bgcolor:'#0e130d',
+    font:{color:'#62ff94', size:11},
+    xaxis:{title:'Relative Decode Speed % at 1M context — higher is better', range:[0,105]},
+    yaxis:{autorange:'reversed', title:''},
+    margin:{l:220, r:120, t:10, b:50},
+    showlegend:false
+  }, {responsive:true});
+
+  const moe = d.filter(x => x.type === 'moe');
+  const dense = d.filter(x => x.type === 'dense');
+  const scDense = {
+    x: dense.map(x => x.ap), y: dense.map(x => 100 - x.kvshare),
+    mode:'markers+text', type:'scatter',
+    marker:{size:12, color:dense.map(x => (100-x.kvshare) > 50 ? '#2eff6a' : (100-x.kvshare) > 25 ? '#ffa83d' : '#ff4b4b'), line:{color:'#62ff94',width:0.5}},
+    text:dense.map(x => x.id.split('-').pop()), textposition:'top center',
+    textfont:{color:'#62ff94', size:9},
+    name:'Dense', hovertemplate:dense.map(x => `<b>${x.id}</b><br>Rel. Speed: ${(100-x.kvshare).toFixed(1)}%<br>KV Share: ${x.kvshare.toFixed(1)}%<br>Active Params: ${x.ap}B<extra></extra>`)
+  };
+  const scMoe = {
+    x: moe.map(x => x.ap), y: moe.map(x => 100 - x.kvshare),
+    mode:'markers+text', type:'scatter',
+    marker:{size:14, color:moe.map(x => (100-x.kvshare) > 50 ? '#2eff6a' : (100-x.kvshare) > 25 ? '#ffa83d' : '#ff4b4b'), line:{color:'#30b3ff',width:0.5}},
+    text:moe.map(x => x.id.split('-').pop()), textposition:'top center',
+    textfont:{color:'#30b3ff', size:9},
+    name:'MoE', hovertemplate:moe.map(x => `<b>${x.id}</b><br>Rel. Speed: ${(100-x.kvshare).toFixed(1)}%<br>KV Share: ${x.kvshare.toFixed(1)}%<br>Active Params: ${x.ap}B<extra></extra>`)
+  };
+  Plotly.newPlot('plot-relspeed-scatter', [scDense, scMoe], {
+    paper_bgcolor:'#0a0e0a', plot_bgcolor:'#0e130d',
+    font:{color:'#62ff94', size:11},
+    xaxis:{title:'Active Parameters (B)', type:'log', gridcolor:'#1e2a1b'},
+    yaxis:{title:'Relative Decode Speed %', range:[0,105], gridcolor:'#1e2a1b'},
+    margin:{l:70, r:30, t:30, b:60},
+    legend:{font:{color:'#8ca391', size:11}, bgcolor:'#0e130d'}
+  }, {responsive:true});
+}
+
+function drawTotalTraffic(){
+  const d = getDisplay();
+  const totalGb = d.map(x => x.kv + x.wg);
+  const maxTotal = Math.max(...totalGb);
+  const trafficColor = totalGb.map(t => {
+    const ratio = t / maxTotal;
+    const g = Math.floor(220 - ratio * 200);
+    return `rgb(200,${g},60)`;
+  });
+  const trace = {
+    y: d.map(x => x.id),
+    x: totalGb,
+    type: 'bar',
+    orientation: 'h',
+    marker: {color: trafficColor, line:{color:'#0a0e0a',width:1}},
+    text: d.map(x => (x.kv + x.wg).toFixed(1) + ' GB'),
+    textposition: 'outside',
+    textfont:{color:'#62ff94', size:10},
+    hovertemplate: d.map(x => `<b>${x.id}</b><br>Total Traffic: ${(x.kv+x.wg).toFixed(2)} GB<br>KV Cache: ${x.kv.toFixed(2)} GB<br>Weights: ${x.wg.toFixed(1)} GB<br>KV Share: ${x.kvshare.toFixed(2)}%<extra></extra>`)
+  };
+  Plotly.newPlot('plot-traffic', [trace], {
+    paper_bgcolor:'#0a0e0a', plot_bgcolor:'#0e130d',
+    font:{color:'#62ff94', size:11},
+    xaxis:{title:'Total HBM Traffic per Token (GB) — lower is better'},
+    yaxis:{autorange:'reversed', title:''},
+    margin:{l:220, r:120, t:10, b:50},
+    showlegend:false
+  }, {responsive:true});
+
+  const moe = d.filter(x => x.type === 'moe');
+  const dense = d.filter(x => x.type === 'dense');
+  const scDense = {
+    x: dense.map(x => x.ap), y: dense.map(x => x.kv + x.wg),
+    mode:'markers+text', type:'scatter',
+    marker:{size:12, color:dense.map(x => shareColor(x.kvshare)), line:{color:'#62ff94',width:0.5}},
+    text:dense.map(x => x.id.split('-').pop()), textposition:'top center',
+    textfont:{color:'#62ff94', size:9},
+    name:'Dense', hovertemplate:dense.map(x => `<b>${x.id}</b><br>Total: ${(x.kv+x.wg).toFixed(1)} GB<br>KV: ${x.kv.toFixed(1)} GB<br>Weights: ${x.wg.toFixed(1)} GB<extra></extra>`)
+  };
+  const scMoe = {
+    x: moe.map(x => x.ap), y: moe.map(x => x.kv + x.wg),
+    mode:'markers+text', type:'scatter',
+    marker:{size:14, color:moe.map(x => shareColor(x.kvshare)), line:{color:'#30b3ff',width:0.5}},
+    text:moe.map(x => x.id.split('-').pop()), textposition:'top center',
+    textfont:{color:'#30b3ff', size:9},
+    name:'MoE', hovertemplate:moe.map(x => `<b>${x.id}</b><br>Total: ${(x.kv+x.wg).toFixed(1)} GB<br>KV: ${x.kv.toFixed(1)} GB<br>Weights: ${x.wg.toFixed(1)} GB<extra></extra>`)
+  };
+  Plotly.newPlot('plot-traffic-scatter', [scDense, scMoe], {
+    paper_bgcolor:'#0a0e0a', plot_bgcolor:'#0e130d',
+    font:{color:'#62ff94', size:11},
+    xaxis:{title:'Active Parameters (B)', type:'log', gridcolor:'#1e2a1b'},
+    yaxis:{title:'Total Traffic GB per Token', type:'log', gridcolor:'#1e2a1b'},
+    margin:{l:70, r:30, t:30, b:60},
+    legend:{font:{color:'#8ca391', size:11}, bgcolor:'#0e130d'}
+  }, {responsive:true});
+}
+
+// Blog plots
+function drawBlogPlots(){
+  console.log('drawBlogPlots called');
+  try {
+    const plotStyle = {paper_bgcolor:'#0a0e0a',plot_bgcolor:'#0e130d',font:{color:'#62ff94',size:12},margin:{l:60,r:20,t:40,b:60}};
+    Plotly.newPlot('plot-m2.7-vs-k3', [
+      {x:['MiniMax M2.7','Kimi K3'], y:[256,233], type:'bar', marker:{color:['#ffa83d','#2eff6a']}, text:['256 GB','233 GB'], textposition:'outside'}
+    ], {...plotStyle, yaxis:{title:'GB read per decode token at 1M context'},showlegend:false},{responsive:true});
+
+    Plotly.newPlot('plot-context-curve', [
+      {x:['1K','10K','100K','500K','1M'], y:[0.22,2.13,17.90,52.13,68.55], type:'scatter', mode:'lines+markers', line:{color:'#62ff94',width:3}, marker:{size:8}, name:'KV Cache Share %'}
+    ], {paper_bgcolor:'#0a0e0a',plot_bgcolor:'#0e130d',font:{color:'#62ff94',size:12},margin:{l:60,r:20,t:40,b:60},xaxis:{title:'Context Length'},yaxis:{title:'KV Cache Share %',range:[0,100]},showlegend:false},{responsive:true});
+
+    Plotly.newPlot('plot-relspeed-bar', [
+      {x:['DeepSeek V4-Pro','Kimi K3','Qwen 2.4T','Kimi K2.6','GLM 5.2','Qwen 3.6 27B','MiMo V2.5','Minimax M3','Minimax M2.7'], y:[91.4,89.0,68.4,49.4,47.4,46.9,58.3,26.4,7.8], type:'bar', marker:{color:['#2eff6a','#2eff6a','#2eff6a','#ffa83d','#ffa83d','#ffa83d','#ffa83d','#ff4b4b','#ff4b4b']}, text:['91.4%','89.0%','68.4%','49.4%','47.4%','46.9%','58.3%','26.4%','7.8%'], textposition:'outside'}
+    ], {...plotStyle, yaxis:{title:'Relative Decode Speed %',range:[0,105]},showlegend:false},{responsive:true});
+
+    const shareData = [
+      {name:'DeepSeek V4-Pro', share:8.56},
+      {name:'Kimi K3', share:11.02},
+      {name:'Qwen 2.4T', share:31.59},
+      {name:'Kimi K2.6', share:50.56},
+      {name:'GLM 5.2', share:52.58},
+      {name:'Qwen 3.6 27B', share:53.06},
+      {name:'MiMo V2.5', share:41.73},
+      {name:'Minimax M3', share:73.57},
+      {name:'Minimax M2.7', share:92.20},
+    ];
+    const shareColors = shareData.map(d => d.share > 70 ? '#ff4b4b' : d.share > 50 ? '#ffa83d' : '#2eff6a');
+    Plotly.newPlot('plot-traffic-compare', [
+      {x:shareData.map(d=>d.share), y:shareData.map(d=>d.name), type:'bar', orientation:'h', name:'KV Cache Share %', marker:{color:shareColors}, text:shareData.map(d=>d.share.toFixed(1)+'%'), textposition:'outside'},
+    ], {paper_bgcolor:'#0a0e0a',plot_bgcolor:'#0e130d',font:{color:'#62ff94',size:11},margin:{l:100,r:80,t:30,b:50},xaxis:{title:'KV Cache Share %',range:[0,105]},yaxis:{title:''},showlegend:false},{responsive:true});
+    console.log('blog plots drawn');
+  } catch(e) { console.log('Plot error:', e); }
+}
+
+buildToggles();
+updateView();
+
+function waitForPlotly(callback, attempts) {
+  attempts = attempts || 0;
+  if (typeof Plotly !== 'undefined' && Plotly.newPlot) {
+    callback();
+  } else if (attempts < 50) {
+    setTimeout(function(){ waitForPlotly(callback, attempts + 1); }, 100);
+  } else {
+    console.log('Plotly not loaded after 5s');
+  }
+}
+
+waitForPlotly(function(){
+  drawBlogPlots();
+  setTimeout(function(){
+    ['plot-m2.7-vs-k3','plot-context-curve','plot-relspeed-bar','plot-traffic-compare'].forEach(function(id){
+      try { Plotly.Plots.resize(id); } catch(e){}
+    });
+  }, 200);
+});
+</script>
+
+<div style="padding:24px 32px;border-top:1px solid #1e2a1b;margin-top:32px">
+  <div class="box">
+    <div class="section-title">How to Cite</div>
+    <div class="code-example">
+      <div class="label">BibTeX</div>
+      <div class="response" style="font-size:11px;line-height:1.8">
+@misc{true_kv_cache_2026,<br>
+&nbsp;&nbsp;title={True KV Cache},<br>
+&nbsp;&nbsp;author={Waleed Ahmad},<br>
+&nbsp;&nbsp;year={2026},<br>
+&nbsp;&nbsp;url={https://trumplm.com/kv-cache-efficiency}<br>
+}
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
